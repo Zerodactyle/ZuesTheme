@@ -1,3 +1,4 @@
+// console.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ITerminalOptions, Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
@@ -19,28 +20,10 @@ import { ChevronDoubleRightIcon } from '@heroicons/react/solid';
 import 'xterm/css/xterm.css';
 import styles from './style.module.css';
 
-const theme = {
-  background: '#111F26',
-  cursor: 'transparent',
-  black: th`colors.black`.toString(),
-  red: '#E54B4B',
-  green: '#9ECE58',
-  yellow: '#FAED70',
-  blue: '#396FE2',
-  magenta: '#BB80B3',
-  cyan: '#2DDAFD',
-  white: '#d0d0d0',
-  brightBlack: 'rgba(255, 255, 255, 0.2)',
-  brightRed: '#FF5370',
-  brightGreen: '#C3E88D',
-  brightYellow: '#FFCB6B',
-  brightBlue: '#82AAFF',
-  brightMagenta: '#C792EA',
-  brightCyan: '#89DDFF',
-  brightWhite: '#ffffff',
-  selection: '#FAF089',
-};
+// Constants
+const terminalPrelude = '\u001b[1m\u001b[33mcontainer@pterodactyl~ \u001b[0m';
 
+// Terminal Props
 const terminalProps: ITerminalOptions = {
   disableStdin: true,
   cursorStyle: 'underline',
@@ -48,11 +31,42 @@ const terminalProps: ITerminalOptions = {
   fontSize: 12,
   fontFamily: th('fontFamily.mono'),
   rows: 30,
-  theme: theme,
+  theme: {
+    background: '#111F26',
+    cursor: 'transparent',
+    black: th`colors.black`.toString(),
+    red: '#E54B4B',
+    green: '#9ECE58',
+    yellow: '#FAED70',
+    blue: '#396FE2',
+    magenta: '#BB80B3',
+    cyan: '#2DDAFD',
+    white: '#d0d0d0',
+    brightBlack: 'rgba(255, 255, 255, 0.2)',
+    brightRed: '#FF5370',
+    brightGreen: '#C3E88D',
+    brightYellow: '#FFCB6B',
+    brightBlue: '#82AAFF',
+    brightMagenta: '#C792EA',
+    brightCyan: '#89DDFF',
+    brightWhite: '#ffffff',
+    selection: '#FAF089',
+  },
 };
 
+// Listeners
+const listeners = {
+  [SocketEvent.STATUS]: (status: string) => handlePowerChangeEvent(status),
+  [SocketEvent.CONSOLE_OUTPUT]: (line: string) => handleConsoleOutput(line),
+  [SocketEvent.INSTALL_OUTPUT]: (line: string) => handleConsoleOutput(line),
+  [SocketEvent.TRANSFER_LOGS]: (line: string) => handleConsoleOutput(line),
+  [SocketEvent.TRANSFER_STATUS]: (status: string) => handleTransferStatus(status),
+  [SocketEvent.DAEMON_MESSAGE]: (line: string) => handleConsoleOutput(line, true),
+  [SocketEvent.DAEMON_ERROR]: (line: string) => handleDaemonErrorOutput(line),
+};
+
+// Console Component
 export default () => {
-  const TERMINAL_PRELUDE = '\u001b[1m\u001b[33mcontainer@pterodactyl~ \u001b[0m';
   const ref = useRef<HTMLDivElement>(null);
   const terminal = useMemo(() => new Terminal({ ...terminalProps }), []);
   const fitAddon = new FitAddon();
@@ -67,30 +81,35 @@ export default () => {
   const [history, setHistory] = usePersistedState<string[]>(`${serverId}:command_history`, []);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
+  // Handle Console Output
   const handleConsoleOutput = (line: string, prelude = false) =>
-    terminal.writeln((prelude ? TERMINAL_PRELUDE : '') + line.replace(/(?:\r\n|\r|\n)$/im, '') + '\u001b[0m');
+    terminal.writeln((prelude ? terminalPrelude : '') + line.replace(/(?:\r\n|\r|\n)$/im, '') + '\u001b[0m');
 
+  // Handle Transfer Status
   const handleTransferStatus = (status: string) => {
     switch (status) {
       // Sent by either the source or target node if a failure occurs.
       case 'failure':
-        terminal.writeln(TERMINAL_PRELUDE + 'Transfer has failed.\u001b[0m');
+        terminal.writeln(terminalPrelude + 'Transfer has failed.\u 001b[0m');
         return;
 
       // Sent by the source node whenever the server was archived successfully.
       case 'archive':
         terminal.writeln(
-          TERMINAL_PRELUDE + 'Server has been archived successfully, attempting connection to target node..\u001b[0m'
+          terminalPrelude + 'Server has been archived successfully, attempting connection to target node..\u001b[0m'
         );
     }
   };
 
+  // Handle Daemon Error Output
   const handleDaemonErrorOutput = (line: string) =>
-    terminal.writeln(TERMINAL_PRELUDE + '\u001b[1m\u001b[41m' + line.replace(/(?:\r\n|\r|\n)$/im, '') + '\u001b[0m');
+    terminal.writeln(terminalPrelude + '\u001b[1m\u001b[41m' + line.replace(/(?:\r\n|\r|\n)$/im, '') + '\u001b[0m');
 
+  // Handle Power Change Event
   const handlePowerChangeEvent = (state: string) =>
-    terminal.writeln(TERMINAL_PRELUDE + 'Server marked as ' + state + '...\u001b[0m');
+    terminal.writeln(terminalPrelude + 'Server marked as ' + state + '...\u001b[0m');
 
+  // Handle Command Key Down
   const handleCommandKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowUp') {
       const newIndex = Math.min(historyIndex + 1, history!.length - 1);
@@ -158,16 +177,6 @@ export default () => {
   );
 
   useEffect(() => {
-    const listeners: Record<string, (s: string) => void> = {
-      [SocketEvent.STATUS]: handlePowerChangeEvent,
-      [SocketEvent.CONSOLE_OUTPUT]: handleConsoleOutput,
-      [SocketEvent.INSTALL_OUTPUT]: handleConsoleOutput,
-      [SocketEvent.TRANSFER_LOGS]: handleConsoleOutput,
-      [SocketEvent.TRANSFER_STATUS]: handleTransferStatus,
-      [SocketEvent.DAEMON_MESSAGE]: (line) => handleConsoleOutput(line, true),
-      [SocketEvent.DAEMON_ERROR]: handleDaemonErrorOutput,
-    };
-
     if (connected && instance) {
       // Do not clear the console if the server is being transferred.
       if (!isTransferring) {
