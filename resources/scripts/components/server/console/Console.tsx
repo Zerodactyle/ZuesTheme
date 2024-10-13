@@ -32,7 +32,7 @@ const terminalProps: ITerminalOptions = {
   fontFamily: th('fontFamily.mono'),
   rows: 30,
   theme: {
-    background: '#111F26',
+    background: 'rgba(128, 0, 128, 0.5)', // Transparent purple background
     cursor: 'transparent',
     black: th`colors.black`.toString(),
     red: '#E54B4B',
@@ -52,17 +52,6 @@ const terminalProps: ITerminalOptions = {
     brightWhite: '#ffffff',
     selection: '#FAF089',
   },
-};
-
-// Listeners
-const listeners = {
-  [SocketEvent.STATUS]: (status: string) => handlePowerChangeEvent(status),
-  [SocketEvent.CONSOLE_OUTPUT]: (line: string) => handleConsoleOutput(line),
-  [SocketEvent.INSTALL_OUTPUT]: (line: string) => handleConsoleOutput(line),
-  [SocketEvent.TRANSFER_LOGS]: (line: string) => handleConsoleOutput(line),
-  [SocketEvent.TRANSFER_STATUS]: (status: string) => handleTransferStatus(status),
-  [SocketEvent.DAEMON_MESSAGE]: (line: string) => handleConsoleOutput(line, true),
-  [SocketEvent.DAEMON_ERROR]: (line: string) => handleDaemonErrorOutput(line),
 };
 
 // Console Component
@@ -88,12 +77,9 @@ export default () => {
   // Handle Transfer Status
   const handleTransferStatus = (status: string) => {
     switch (status) {
-      // Sent by either the source or target node if a failure occurs.
       case 'failure':
-        terminal.writeln(terminalPrelude + 'Transfer has failed.\u 001b[0m');
+        terminal.writeln(terminalPrelude + 'Transfer has failed.\u001b[0m');
         return;
-
-      // Sent by the source node whenever the server was archived successfully.
       case 'archive':
         terminal.writeln(
           terminalPrelude + 'Server has been archived successfully, attempting connection to target node..\u001b[0m'
@@ -107,127 +93,115 @@ export default () => {
 
   // Handle Power Change Event
   const handlePowerChangeEvent = (state: string) =>
-    terminal.writeln(terminalPrelude + 'Server marked as ' + state + '...\u001b[0m');
+    terminal.writeln(terminalPrelude + 'Server marked as ' + state + '.\u001b[0m');
 
-  // Handle Command Key Down
-  const handleCommandKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowUp') {
-      const newIndex = Math.min(historyIndex + 1, history!.length - 1);
+  // Handle Server Status Update
+  const handleServerStatusUpdate = (status: string) =>
+    terminal.writeln(terminalPrelude + 'Server status updated to ' + status + '.\u001b[0m');
 
-      setHistoryIndex(newIndex);
-      e.currentTarget.value = history![newIndex] || '';
-
-      // By default up arrow will also bring the cursor to the start of the line,
-      // so we'll preventDefault to keep it at the end.
-      e.preventDefault();
-    }
-
-    if (e.key === 'ArrowDown') {
-      const newIndex = Math.max(historyIndex - 1, -1);
-
-      setHistoryIndex(newIndex);
-      e.currentTarget.value = history![newIndex] || '';
-    }
-
-    const command = e.currentTarget.value;
-    if (e.key === 'Enter' && command.length > 0) {
-      setHistory((prevHistory) => [command, ...prevHistory!].slice(0, 32));
-      setHistoryIndex(-1);
-
-      instance && instance.send('send command', command);
-      e.currentTarget.value = '';
+  // Handle Server Event
+  const handleServerEvent = (event: SocketEvent) => {
+    switch (event.type) {
+      case 'console_output':
+        handleConsoleOutput(event.data);
+        break;
+      case 'transfer_status':
+        handleTransferStatus(event.data);
+        break;
+      case 'daemon_error_output':
+        handleDaemonErrorOutput(event.data);
+        break;
+      case 'power_change':
+        handlePowerChangeEvent(event.data);
+        break;
+      case 'server_status_update':
+        handleServerStatusUpdate(event.data);
     }
   };
 
+  // Initialize Terminal
   useEffect(() => {
-    if (connected && ref.current && !terminal.element) {
+    if (ref.current) {
+      terminal.open(ref.current);
       terminal.loadAddon(fitAddon);
       terminal.loadAddon(searchAddon);
       terminal.loadAddon(searchBar);
       terminal.loadAddon(webLinksAddon);
       terminal.loadAddon(scrollDownHelperAddon);
-
-      terminal.open(ref.current);
-      fitAddon.fit();
-
-      // Add support for capturing keys
-      terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-          document.execCommand('copy');
-          return false;
-        } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-          e.preventDefault();
-          searchBar.show();
-          return false;
-        } else if (e.key === 'Escape') {
-          searchBar.hidden();
-        }
-        return true;
-      });
+      terminal.focus();
     }
-  }, [terminal, connected]);
+  }, [ref]);
 
-  useEventListener(
-    'resize',
-    debounce(() => {
-      if (terminal.element) {
-        fitAddon.fit();
-      }
-    }, 100)
-  );
-
+  // Handle Socket Events
   useEffect(() => {
-    if (connected && instance) {
-      // Do not clear the console if the server is being transferred.
-      if (!isTransferring) {
-        terminal.clear();
-      }
-
-      Object.keys(listeners).forEach((key: string) => {
-        instance.addListener(key, listeners[key]);
-      });
-      instance.send(SocketRequest.SEND_LOGS);
+    if (instance) {
+      instance.on('event', handleServerEvent);
     }
-
     return () => {
       if (instance) {
-        Object.keys(listeners).forEach((key: string) => {
-          instance.removeListener(key, listeners[key]);
-        });
+        instance.off('event', handleServerEvent);
       }
     };
-  }, [connected, instance]);
+  }, [instance]);
 
+  // Handle Command Input
+  const handleCommandInput = (command: string) => {
+    if (canSendCommands) {
+      instance?.emit('command', command);
+      setHistory((prevHistory) => [...prevHistory, command]);
+      setHistoryIndex(-1);
+    }
+  };
+
+  // Handle Command History Navigation
+  const handleCommandHistoryNavigation = (direction: 'up' | 'down') => {
+    if (direction === 'up' && historyIndex < history.length - 1) {
+      setHistoryIndex(historyIndex + 1);
+    } else if (direction === 'down' && historyIndex > 0) {
+      setHistoryIndex(historyIndex - 1);
+    }
+  };
+
+  // Render Console
   return (
-    <div className={classNames(styles.terminal, 'relative')}>
-      <SpinnerOverlay visible={!connected} size={'large'} />
-      <div className={classNames(styles.container, styles.overflows_container, { 'rounded-b': !canSendCommands })}>
-        <div className={'h-full'}>
-          <div id={styles.terminal} ref={ref} />
-        </div>
-      </div>
-      {canSendCommands && (
-        <div className={classNames('relative', styles.overflows_container)}>
-          <input
-            className={classNames('peer', styles.command_input)}
-            type={'text'}
-            placeholder={'Type a command...'}
-            aria-label={'Console command input.'}
-            disabled={!instance || !connected}
-            onKeyDown={handleCommandKeyDown}
-            autoCorrect={'off'}
-            autoCapitalize={'none'}
-          />
-          <div
-            className={classNames(
-              'text-gray-100 peer-focus:text-gray-50 peer-focus:animate-pulse',
-              styles.command_icon
-            )}
-          >
-            <ChevronDoubleRightIcon className={'w-4 h-4'} />
-          </div>
+    <div className={classNames(styles.console, 'flex flex-col h-full w-full overflow-hidden')} ref={ref}>
+      {connected && (
+        <div className={classNames(styles.consoleHeader, 'flex justify-between items-center p-2')}>
+          <ChevronDoubleRightIcon className={classNames(styles.consoleIcon, 'w-4 h-4 text-gray-500')} />
+          <span className={classNames(styles.consoleTitle, 'text-sm text-gray-500')}>Console</span>
         </div>
       )}
+      {isTransferring && (
+        <SpinnerOverlay
+          className={classNames(styles.consoleSpinner, 'absolute top-0 left-0 w-full h-full')}
+          size={24}
+        />
+      )}
+      <div className={classNames(styles.consoleInput, 'flex items-center p-2')}>
+        <input
+          type="text"
+          className={classNames(styles.consoleInputField, 'w-full p-2 pl-10 text-sm')}
+          placeholder="Enter command..."
+          value={historyIndex >= 0 ? history[historyIndex] : ''}
+          onChange={(e) => {
+            if (historyIndex >= 0) {
+              setHistoryIndex(-1);
+            }
+          }}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter') {
+              handleCommandInput(e.currentTarget.value);
+              e.currentTarget.value = '';
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              handleCommandHistoryNavigation('up');
+            } else if (e.key === 'ArrowDown') {
+              handleCommandHistoryNavigation('down');
+            }
+          }}
+        />
+      </div>
     </div>
   );
-};
