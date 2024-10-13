@@ -1,3 +1,5 @@
+#!/bin/bash
+
 if (( $EUID != 0 )); then
     echo "Please run as root"
     exit
@@ -12,10 +14,8 @@ fix() {
     yarn build:production
 }
 
-
-echo "Welcome to the IceMinecraftTheme fixer!"
-echo "This script will fix the theme if you have an problem with it."
-echo "If you have any problem with the theme, please contact me on Discord: https://discord.nookure.com/"
+echo "Welcome to the ZuesTheme fixer!"
+echo "This script will fix the theme if you have an problem with it.
 
 while true; do
     read -p "Are you sure [y/N]? " yn
