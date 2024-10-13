@@ -20,8 +20,6 @@ repairPanel(){
 
     php artisan config:clear
 
-    php artisan migrate --seed --force
-
     chown -R www-data:www-data /var/www/pterodactyl/*
 
     php artisan queue:restart
@@ -30,7 +28,7 @@ repairPanel(){
 }
 
 while true; do
-    read -p "Are you sure that you want to install the theme [y/n]? " yn
+    read -p "Are you sure that you want to repair [y/n]? " yn
     case $yn in
         [Yy]* ) repairPanel; break;;
         [Nn]* ) exit;;
