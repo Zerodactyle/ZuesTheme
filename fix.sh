@@ -15,7 +15,7 @@ fix() {
 }
 
 echo "Welcome to the ZuesTheme fixer!"
-echo "This script will fix the theme if you have an problem with it.
+echo "This script will fix the theme if you have an problem with it."
 
 while true; do
     read -p "Are you sure [y/N]? " yn
